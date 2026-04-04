@@ -1,0 +1,1 @@
+"""Working memory module placeholder."""
