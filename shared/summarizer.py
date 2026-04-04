@@ -1,3 +1,5 @@
+# 通用摘要生成工具，供各模块复用
+
 from __future__ import annotations
 
 from typing import Any
@@ -25,6 +27,7 @@ SUMMARY_USER_TEMPLATE = """
 """
 
 
+# 调用 LLM 为给定内容生成摘要
 async def generate_summary(
     content: str,
     context: Any,

@@ -1,3 +1,5 @@
+# episodes 表的 CRUD 操作
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -8,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from repository.models import Episode, Round
 
 
+# 创建事件记录，episode_id 自动递增
 async def create_episode(
     session: AsyncSession,
     *,
@@ -36,6 +39,7 @@ async def create_episode(
     return episode
 
 
+# 获取指定 chat 的所有事件
 async def get_all_episodes(session: AsyncSession, chat_id: str) -> list[Episode]:
     stmt = (
         select(Episode)
@@ -46,6 +50,27 @@ async def get_all_episodes(session: AsyncSession, chat_id: str) -> list[Episode]
     return list(result.all())
 
 
+# 查询与指定回合区间有重叠的事件（用于召回范围筛选）
+async def get_episodes_overlapping_round_range(
+    session: AsyncSession,
+    chat_id: str,
+    start_round_id: int,
+    end_round_id: int,
+) -> list[Episode]:
+    stmt = (
+        select(Episode)
+        .where(
+            Episode.chat_id == chat_id,
+            Episode.start_round_id <= end_round_id,
+            Episode.end_round_id >= start_round_id,
+        )
+        .order_by(Episode.episode_id.asc())
+    )
+    result = await session.scalars(stmt)
+    return list(result.all())
+
+
+# 根据 episode_id 列表批量查询事件
 async def get_episodes_by_ids(
     session: AsyncSession,
     chat_id: str,
@@ -63,6 +88,7 @@ async def get_episodes_by_ids(
     return list(result.all())
 
 
+# 查询受回滚影响的事件（start 或 end 超过回滚点的事件）
 async def get_affected_episodes(session: AsyncSession, chat_id: str, round_id: int) -> list[Episode]:
     stmt = (
         select(Episode)
@@ -76,6 +102,7 @@ async def get_affected_episodes(session: AsyncSession, chat_id: str, round_id: i
     return list(result.all())
 
 
+# 删除单个事件，并将其下 rounds 的 episode_id 重置为 null
 async def delete_episode(session: AsyncSession, chat_id: str, episode_id: int) -> bool:
     await session.execute(
         update(Round)
@@ -88,6 +115,7 @@ async def delete_episode(session: AsyncSession, chat_id: str, episode_id: int) -
     return result.rowcount > 0
 
 
+# 删除受回滚影响的所有事件，并重置相关 rounds 的 episode_id
 async def delete_episodes_after(session: AsyncSession, chat_id: str, round_id: int) -> int:
     affected_episodes = await get_affected_episodes(session, chat_id, round_id)
     if not affected_episodes:

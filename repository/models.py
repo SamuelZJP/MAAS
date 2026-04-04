@@ -1,3 +1,5 @@
+# SQLAlchemy ORM 模型定义：chats / rounds / episodes
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -14,6 +16,7 @@ class Base(DeclarativeBase):
     pass
 
 
+# 角色对话主表
 class Chat(Base):
     __tablename__ = "chats"
 
@@ -35,6 +38,7 @@ class Chat(Base):
     )
 
 
+# 对话回合表，主键为 (chat_id, round_id)
 class Round(Base):
     __tablename__ = "rounds"
     __table_args__ = (
@@ -66,6 +70,7 @@ class Round(Base):
     )
 
 
+# 事件表，主键为 (chat_id, episode_id)
 class Episode(Base):
     __tablename__ = "episodes"
     __table_args__ = (
