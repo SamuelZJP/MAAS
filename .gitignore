@@ -13,7 +13,14 @@ ENV/
 
 # Data
 maas.db
+data/
 
 # Prompt
 AGENTS.md
 CLAUDE.md
+
+# JetBrain
+.idea
+
+# temp
+TEMP.md

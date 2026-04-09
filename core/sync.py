@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from repository.crud.chats import update_chat
 from repository.crud.episodes import delete_episodes_after, get_affected_episodes
 from repository.crud.rounds import delete_rounds_after, get_max_round_id
+from repository.crud.semantic import delete_semantic_memories_after
 
 
 # 检查前端与后端的回合 ID 是否一致，若前端有删除则执行回滚
@@ -32,6 +33,7 @@ async def check_and_rollback(
             await delete_episodes_after(db_session, chat_id, latest_round_id)
 
         await delete_rounds_after(db_session, chat_id, latest_round_id)
+        await delete_semantic_memories_after(db_session, chat_id, latest_round_id)
 
         if deleted_first_episode:
             await update_chat(db_session, chat_id, first_message_archived=False)

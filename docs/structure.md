@@ -9,14 +9,15 @@ MAAS/
 │   ├── chats.py                       # POST/GET/PATCH/DELETE /chats
 │   ├── recall.py                      # POST /recall
 │   ├── archive.py                     # POST /archive
-│   └── admin.py                       # 管理/调试端点（rounds、episodes CRUD）
+│   └── admin.py                       # 管理/调试端点（rounds、episodes、semantic CRUD）
 │
 ├── schemas/                           # Pydantic 模型（请求体/响应体）
 │   ├── __init__.py                    # api 和 core 都会引用，因此独立
 │   ├── chats.py
 │   ├── recall.py
 │   ├── archive.py
-│   └── episodes.py
+│   ├── episodes.py
+│   └── semantic.py
 │
 ├── core/                              # 编排层：管理流程和模块间依赖
 │   ├── __init__.py
@@ -31,8 +32,12 @@ MAAS/
 │   │   ├── recall.py                  # 情节记忆的召回逻辑
 │   │   ├── archive.py                 # 情节记忆的归档逻辑（边界检测+事件生成）
 │   │   └── prompts.py                 # 情节记忆专用提示词模板
-│   ├── semantic/                      # 语义记忆（未来）
-│   │   └── __init__.py
+│   ├── semantic/                      # 语义记忆（本期实现）
+│   │   ├── __init__.py
+│   │   ├── recall.py                  # 语义记忆的召回逻辑（读取最新快照）
+│   │   ├── archive.py                 # 语义记忆的归档逻辑（LLM patch + 校验 + 回退）
+│   │   ├── prompts.py                 # 语义记忆专用提示词模板
+│   │   └── schema_loader.py           # 加载 data/{chat_id}.py 中的 Schema
 │   ├── working/                       # 工作记忆（未来）
 │   │   └── __init__.py
 │   ├── personality/                   # 人格系统（未来）
@@ -48,7 +53,11 @@ MAAS/
 │       ├── __init__.py
 │       ├── chats.py
 │       ├── rounds.py
-│       └── episodes.py
+│       ├── episodes.py
+│       └── semantic.py
+│
+├── data/                              # 角色级语义记忆 Schema
+│   └── 苏菲.py
 │
 └── shared/                            # 跨模块通用工具
     ├── __init__.py

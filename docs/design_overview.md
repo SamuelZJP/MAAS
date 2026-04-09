@@ -30,7 +30,7 @@
 | chat_id | string, PK | 角色/对话唯一标识，由前端提供 |
 | first_message | text | 角色首条消息原文 |
 | first_message_archived | boolean, default false | 首条消息是否已归入某个事件 |
-| enabled_modules | JSON array, default [] | 已启用的模块列表，当前可选值：`"episodic"` |
+| enabled_modules | JSON array, default [] | 已启用的模块列表，当前可选值：`"episodic"`、`"semantic"`；其中 `semantic` 只能在初始化时决定 |
 | created_at | datetime | 记录创建时间 |
 
 ### 3.2 rounds
@@ -62,7 +62,7 @@
 {
   "chat_id": "char_alice_01",
   "first_message": "你好，我是Alice...",
-  "enabled_modules": ["episodic"]
+  "enabled_modules": ["episodic", "semantic"]
 }
 ```
 
@@ -83,9 +83,13 @@
 请求体（部分更新）：
 ```json
 {
-  "enabled_modules": ["episodic"]
+  "enabled_modules": ["episodic", "semantic"]
 }
 ```
+
+说明：
+- `semantic` 模块只能在 `POST /chats` 初始化时启用
+- 已初始化的 chat 不允许通过 `PATCH /chats/{chat_id}` 新增或移除 `semantic`
 
 #### DELETE /chats/{chat_id} — 删除角色对话及其所有关联数据
 
@@ -132,12 +136,19 @@
       "summary": "事件摘要文本..."
     }
   ],
+  "semantic_memory": {
+    "世界": {
+      "日期": "2026-04-08 星期三",
+      "时间": "14:30",
+      "地点": "教室"
+    }
+  },
   "rollback_performed": false,
   "rollback_to_round_id": null
 }
 ```
 
-若无模块被启用或无可召回内容，相应字段为空数组。
+若无模块被启用或无可召回内容，`recalled_episodes` 为空数组，`semantic_memory` 为 `null`。
 
 #### POST /archive — 记忆归档
 
@@ -162,7 +173,15 @@
 {
   "round_stored": true,
   "episode_created": false,
-  "new_episode": null
+  "new_episode": null,
+  "semantic_updated": false,
+  "semantic_memory": {
+    "世界": {
+      "日期": "2026-04-08 星期三",
+      "时间": "14:30",
+      "地点": "教室"
+    }
+  }
 }
 ```
 
@@ -171,6 +190,14 @@
 {
   "round_stored": true,
   "episode_created": true,
+  "semantic_updated": true,
+  "semantic_memory": {
+    "世界": {
+      "日期": "2026-04-08 星期三",
+      "时间": "15:00",
+      "地点": "教室"
+    }
+  },
   "new_episode": {
     "episode_id": 5,
     "title": "新事件标题",
@@ -213,7 +240,9 @@
 
 3. **删除回滚范围内的 rounds**：删除所有 `round_id > R` 的 rounds
 
-4. **处理 first_message 状态**：若被删除的 episode 中包含 episode_id = 1（首个事件），则将 `first_message_archived` 重置为 false
+4. **删除回滚范围内的 semantic 快照**：删除 `semantic_memories` 中所有 `round_id > R` 的记录，使当前语义状态自动回退到回滚点快照
+
+5. **处理 first_message 状态**：若被删除的 episode 中包含 episode_id = 1（首个事件），则将 `first_message_archived` 重置为 false
 
 ### 5.3 回滚后状态
 
@@ -239,9 +268,9 @@
 
 | 预留点 | 说明 |
 |--------|------|
-| enabled_modules | chats 表中的 JSON 数组，未来新增模块时只需扩展可选值（如 `"semantic"`, `"working"`, `"personality"`, `"lore"`） |
-| /recall 响应结构 | 当前仅返回 `recalled_episodes`，未来可扩展 `semantic_memory`, `working_memory` 等字段 |
-| /archive 响应结构 | 同上，可扩展其他模块的归档结果 |
+| enabled_modules | chats 表中的 JSON 数组，当前已支持 `"episodic"`、`"semantic"`，未来仍可继续扩展 `"working"`、`"personality"`、`"lore"` |
+| /recall 响应结构 | 当前返回 `recalled_episodes`、`semantic_memory`，未来可继续扩展 `working_memory` 等字段 |
+| /archive 响应结构 | 当前返回 episodic 与 semantic 的归档结果，未来可继续扩展其他模块结果 |
 | context 字段 | 召回和归档请求中的 context 为开放结构，仅承载后端不持有的外部信息；未来模块所需上下文可自由扩展 |
 | 情节记忆预筛选 | 当事件数量增长后，可在 LLM 筛选前接入向量检索做粗筛，API 接口无需变更 |
 

@@ -3,7 +3,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.semantic.schema_loader import SemanticSchemaError, build_default_snapshot
 from repository.crud.chats import create_chat, delete_chat, get_chat, update_chat
+from repository.crud.semantic import create_semantic_memory
 from repository.database import get_session
 from schemas.chats import ChatCreate, ChatResponse, ChatUpdate
 
@@ -16,12 +18,27 @@ async def create_chat_endpoint(
     payload: ChatCreate,
     db_session: AsyncSession = Depends(get_session),
 ) -> ChatResponse:
-    chat = await create_chat(
-        db_session,
-        chat_id=payload.chat_id,
-        first_message=payload.first_message,
-        enabled_modules=payload.enabled_modules,
-    )
+    try:
+        semantic_snapshot = None
+        if "semantic" in payload.enabled_modules:
+            semantic_snapshot = build_default_snapshot(payload.chat_id)
+
+        chat = await create_chat(
+            db_session,
+            chat_id=payload.chat_id,
+            first_message=payload.first_message,
+            enabled_modules=payload.enabled_modules,
+        )
+        if semantic_snapshot is not None:
+            await create_semantic_memory(
+                db_session,
+                chat_id=payload.chat_id,
+                round_id=0,
+                content=semantic_snapshot,
+            )
+    except SemanticSchemaError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     await db_session.commit()
     return ChatResponse.model_validate(chat)
 
@@ -45,9 +62,20 @@ async def update_chat_endpoint(
     payload: ChatUpdate,
     db_session: AsyncSession = Depends(get_session),
 ) -> ChatResponse:
-    chat = await update_chat(db_session, chat_id, **payload.model_dump(exclude_unset=True))
-    if chat is None:
+    existing_chat = await get_chat(db_session, chat_id)
+    if existing_chat is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found.")
+
+    if payload.enabled_modules is not None:
+        existing_has_semantic = "semantic" in existing_chat.enabled_modules
+        requested_has_semantic = "semantic" in payload.enabled_modules
+        if existing_has_semantic != requested_has_semantic:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Semantic module can only be configured during chat creation.",
+            )
+
+    chat = await update_chat(db_session, chat_id, **payload.model_dump(exclude_unset=True))
     await db_session.commit()
     return ChatResponse.model_validate(chat)
 

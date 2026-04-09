@@ -5,9 +5,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from repository.crud.episodes import delete_episode, get_all_episodes
 from repository.crud.rounds import get_rounds
+from repository.crud.semantic import (
+    get_latest_semantic_memory,
+    get_semantic_memory,
+    list_semantic_memories,
+    upsert_semantic_memory,
+)
 from repository.database import get_session
 from repository.models import Episode, Round
 from schemas.episodes import EpisodeDetail
+from schemas.semantic import SemanticMemoryDetail, SemanticMemoryUpdateRequest
+from modules.semantic.schema_loader import SemanticSchemaError, validate_snapshot
 
 router = APIRouter(prefix="/chats/{chat_id}")
 
@@ -103,3 +111,57 @@ def _serialize_round(round_: Round) -> dict:
         "episode_id": round_.episode_id,
         "created_at": round_.created_at,
     }
+
+
+@router.get("/semantic", response_model=SemanticMemoryDetail)
+async def get_latest_semantic_endpoint(
+    chat_id: str,
+    db_session: AsyncSession = Depends(get_session),
+) -> SemanticMemoryDetail:
+    record = await get_latest_semantic_memory(db_session, chat_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semantic memory not found.")
+    return SemanticMemoryDetail.model_validate(record)
+
+
+@router.get("/semantic/history", response_model=list[SemanticMemoryDetail])
+async def list_semantic_history_endpoint(
+    chat_id: str,
+    db_session: AsyncSession = Depends(get_session),
+) -> list[SemanticMemoryDetail]:
+    records = await list_semantic_memories(db_session, chat_id)
+    return [SemanticMemoryDetail.model_validate(record) for record in records]
+
+
+@router.get("/semantic/{round_id}", response_model=SemanticMemoryDetail)
+async def get_semantic_by_round_endpoint(
+    chat_id: str,
+    round_id: int,
+    db_session: AsyncSession = Depends(get_session),
+) -> SemanticMemoryDetail:
+    record = await get_semantic_memory(db_session, chat_id, round_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semantic memory not found.")
+    return SemanticMemoryDetail.model_validate(record)
+
+
+@router.put("/semantic/{round_id}", response_model=SemanticMemoryDetail)
+async def put_semantic_by_round_endpoint(
+    chat_id: str,
+    round_id: int,
+    payload: SemanticMemoryUpdateRequest,
+    db_session: AsyncSession = Depends(get_session),
+) -> SemanticMemoryDetail:
+    try:
+        content = validate_snapshot(chat_id, payload.content)
+    except SemanticSchemaError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    record = await upsert_semantic_memory(
+        db_session,
+        chat_id=chat_id,
+        round_id=round_id,
+        content=content,
+    )
+    await db_session.commit()
+    return SemanticMemoryDetail.model_validate(record)

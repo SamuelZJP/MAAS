@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from schemas.episodes import EpisodeDetail
+from schemas.semantic import SemanticMemorySnapshot
 
 
 # 归档请求中的上下文信息（前端额外上下文）
@@ -31,3 +32,5 @@ class ArchiveResponse(BaseModel):
     round_stored: bool
     episode_created: bool
     new_episode: EpisodeDetail | None
+    semantic_updated: bool = False
+    semantic_memory: SemanticMemorySnapshot | None = None

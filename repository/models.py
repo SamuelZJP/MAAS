@@ -1,4 +1,4 @@
-# SQLAlchemy ORM 模型定义：chats / rounds / episodes
+# SQLAlchemy ORM 模型定义：chats / rounds / episodes / semantic_memories
 
 from __future__ import annotations
 
@@ -32,6 +32,11 @@ class Chat(Base):
         passive_deletes=True,
     )
     episodes: Mapped[list["Episode"]] = relationship(
+        back_populates="chat",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    semantic_memories: Mapped[list["SemanticMemory"]] = relationship(
         back_populates="chat",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -99,4 +104,22 @@ class Episode(Base):
     )
 
 
-__all__ = ["Base", "Chat", "Round", "Episode"]
+class SemanticMemory(Base):
+    __tablename__ = "semantic_memories"
+    __table_args__ = (
+        CheckConstraint("round_id >= 0", name="ck_semantic_memories_round_id_non_negative"),
+    )
+
+    chat_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("chats.chat_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    round_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    content: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    chat: Mapped["Chat"] = relationship(back_populates="semantic_memories")
+
+
+__all__ = ["Base", "Chat", "Round", "Episode", "SemanticMemory"]

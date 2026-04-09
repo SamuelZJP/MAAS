@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Settings
 from modules.episodic.archive import archive as episodic_archive
+from modules.semantic.archive import archive as semantic_archive
 from repository.crud.chats import get_chat
 from repository.crud.rounds import create_round
 from repository.models import Round
@@ -25,16 +26,20 @@ async def run_archive(
     llm_client: LLMClient,
     config: Settings,
 ) -> ArchiveResponse:
+    normalized_round_data = _normalize_round_data(round_data)
+
     # 幂等性保护：重复 round_id 直接跳过
-    existing_round = await db_session.get(Round, (chat_id, _normalize_round_data(round_data)["round_id"]))
+    existing_round = await db_session.get(Round, (chat_id, normalized_round_data["round_id"]))
     if existing_round is not None:
         return ArchiveResponse(
             round_stored=False,
             episode_created=False,
             new_episode=None,
+            semantic_updated=False,
+            semantic_memory=None,
         )
 
-    stored_round = await _store_round(chat_id, round_data, db_session)
+    stored_round = await _store_round(chat_id, normalized_round_data, db_session)
 
     chat = await get_chat(db_session, chat_id)
     if chat is None:
@@ -42,10 +47,27 @@ async def run_archive(
             round_stored=stored_round,
             episode_created=False,
             new_episode=None,
+            semantic_updated=False,
+            semantic_memory=None,
         )
 
     episode_created = False
     new_episode = None
+    semantic_updated = False
+    semantic_memory = None
+
+    if "semantic" in chat.enabled_modules:
+        semantic_result = await semantic_archive(
+            chat_id=chat_id,
+            round_id=normalized_round_data["round_id"],
+            user_input=normalized_round_data["user_input"],
+            ai_response=normalized_round_data["ai_response"],
+            context=context,
+            db_session=db_session,
+            llm_client=llm_client,
+        )
+        semantic_updated = bool(semantic_result.get("semantic_updated"))
+        semantic_memory = semantic_result.get("semantic_memory")
 
     if "episodic" in chat.enabled_modules:
         episodic_result = await episodic_archive(
@@ -58,19 +80,20 @@ async def run_archive(
         if episode_created and episodic_result.get("new_episode") is not None:
             new_episode = EpisodeDetail(**episodic_result["new_episode"])
 
-    # 未来新增模块时在此处追加归档逻辑（语义记忆应先于工作记忆执行）
     _ = config
 
     return ArchiveResponse(
         round_stored=stored_round,
         episode_created=episode_created,
         new_episode=new_episode,
+        semantic_updated=semantic_updated,
+        semantic_memory=semantic_memory,
     )
 
 
 # 将本轮对话存入 rounds 表，若已存在则更新内容
-async def _store_round(chat_id: str, round_data: Any, db_session: AsyncSession) -> bool:
-    data = _normalize_round_data(round_data)
+async def _store_round(chat_id: str, round_data: dict[str, Any], db_session: AsyncSession) -> bool:
+    data = round_data
     existing_round = await db_session.get(Round, (chat_id, data["round_id"]))
     if existing_round is None:
         await create_round(

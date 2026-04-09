@@ -1,1 +1,1 @@
-"""Semantic memory module placeholder."""
+"""Semantic memory module."""
