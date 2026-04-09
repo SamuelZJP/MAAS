@@ -43,7 +43,7 @@
 | round_id | integer | 回合序号，同一 chat 内从 1 起递增 |
 | user_input | text | 用户输入原文 |
 | ai_response | text | AI 回复原文 |
-| summary | text | 本回合的摘要（由 ST 前端提供，包含剧情时间） |
+| summary | text | 本回合的摘要（由后端调用外部 LLM 生成，可融合语义记忆中的时间地点信息） |
 | episode_id | integer, nullable | 所归属的事件 ID；null 表示未归档 |
 | created_at | datetime | 记录创建时间 |
 
@@ -189,7 +189,7 @@
   "round_id": 16,
   "user_input": "用户输入原文",
   "ai_response": "AI回复原文",
-  "summary": "本回合摘要（含剧情时间）",
+  "summary": "兼容保留字段，后端忽略该值并自行生成摘要",
   "context": {
     "extra": "角色性格等上下文（由前端硬编码提供）"
   }
@@ -235,6 +235,11 @@
   }
 }
 ```
+
+说明：
+- `summary` 请求字段当前仅为兼容保留，后端不再使用前端传入值
+- 后端会在归档流程中调用外部 LLM 生成回合摘要，并写入 `rounds.summary`
+- 若启用了 `semantic` 模块，后端会先更新本轮语义记忆，再将其中的日期、时间、地点注入摘要提示词
 
 ### 4.3 管理/调试 CRUD API
 

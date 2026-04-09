@@ -23,6 +23,7 @@ class ArchiveRequest(BaseModel):
     round_id: int
     user_input: str
     ai_response: str
+    # 兼容保留字段：后端已忽略前端传入的 summary，统一自行生成
     summary: str
     context: ArchiveContext
 

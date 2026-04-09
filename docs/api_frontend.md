@@ -153,7 +153,7 @@
   "round_id": 16,
   "user_input": "你还记得我们之前在教室里的事吗？",
   "ai_response": "我当然记得，那天你突然靠近我，把我吓了一跳。",
-  "summary": "用户提起此前教室中的误会，苏菲明确表示自己记得那件事。",
+  "summary": "兼容保留字段，后端忽略该值并自行生成摘要。",
   "context": {
     "extra": {
       "speaker": "assistant"
@@ -198,9 +198,28 @@
 说明：
 
 - `round_id` 由前端递增维护
+- `summary` 当前为兼容保留字段，后端不会使用前端传入内容
+- 后端会调用外部 LLM 生成回合摘要；若启用了语义模块，会将当前语义记忆中的日期、时间、地点注入摘要提示词
 - 若同一个 `chat_id + round_id` 被重复提交，返回中 `round_stored` 为 `false`
 - `episode_created` 表示本轮是否产生了新的事件归档
 - `semantic_updated` 表示本轮语义记忆是否发生变化
+
+## 获得某一回合的状态变量
+
+`GET /api/v1/chats/{chat_id}/semantic/{round_id}`
+
+返回示例:
+```json
+{
+    "chat_id": "string",
+    "round_id": 0,
+    "content": {
+        "property1": "string",
+        "property2": "string"
+    },
+    "created_at": "2019-08-24T14:15:22.123Z"
+}
+```
 
 ## 6. 常见错误
 

@@ -15,6 +15,7 @@ from repository.models import Round
 from schemas.archive import ArchiveResponse
 from schemas.episodes import EpisodeDetail
 from shared.llm_client import LLMClient
+from shared.summarizer import generate_summary
 
 
 # 归档主流程：先存储本轮对话，再依次调用各模块的归档逻辑
@@ -39,12 +40,10 @@ async def run_archive(
             semantic_memory=None,
         )
 
-    stored_round = await _store_round(chat_id, normalized_round_data, db_session)
-
     chat = await get_chat(db_session, chat_id)
     if chat is None:
         return ArchiveResponse(
-            round_stored=stored_round,
+            round_stored=False,
             episode_created=False,
             new_episode=None,
             semantic_updated=False,
@@ -68,6 +67,17 @@ async def run_archive(
         )
         semantic_updated = bool(semantic_result.get("semantic_updated"))
         semantic_memory = semantic_result.get("semantic_memory")
+
+    generated_summary = await generate_summary(
+        user_input=normalized_round_data["user_input"],
+        ai_response=normalized_round_data["ai_response"],
+        context=context,
+        semantic_memory=semantic_memory,
+        llm_client=llm_client,
+    )
+    normalized_round_data["summary"] = generated_summary.strip()
+
+    stored_round = await _store_round(chat_id, normalized_round_data, db_session)
 
     if "episodic" in chat.enabled_modules:
         episodic_result = await episodic_archive(
@@ -128,5 +138,5 @@ def _normalize_round_data(round_data: Any) -> dict[str, Any]:
         "round_id": data["round_id"],
         "user_input": data["user_input"],
         "ai_response": data["ai_response"],
-        "summary": data["summary"],
+        "summary": "",
     }

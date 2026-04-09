@@ -172,6 +172,28 @@ class LLMClient:
             episode_ids = [int(value) for value in re.findall(r"事件(\d+)：", user_prompt)]
             return json.dumps(episode_ids[-1:] if episode_ids else [], ensure_ascii=False)
 
+        if "## 当前语义记忆" in user_prompt and "## 待摘要内容" in user_prompt:
+            date_match = re.search(r"日期：(.+)", user_prompt)
+            time_match = re.search(r"时间：(.+)", user_prompt)
+            location_match = re.search(r"地点：(.+)", user_prompt)
+            user_input_match = re.search(r"用户输入：(.+)", user_prompt)
+            ai_response_match = re.search(r"AI回复：(.+)", user_prompt)
+
+            parts = []
+            if date_match and time_match:
+                parts.append(f"{date_match.group(1).strip()} {time_match.group(1).strip()}")
+            elif date_match:
+                parts.append(date_match.group(1).strip())
+            elif time_match:
+                parts.append(time_match.group(1).strip())
+            if location_match:
+                parts.append(location_match.group(1).strip())
+            if user_input_match:
+                parts.append(f"用户：{user_input_match.group(1).strip()}")
+            if ai_response_match:
+                parts.append(f"AI：{ai_response_match.group(1).strip()}")
+            return "，".join(parts) or "本回合摘要"
+
         if "待检测的回合摘要" in user_prompt:
             round_ids = [int(value) for value in re.findall(r"\[回合(\d+)\]", user_prompt)]
             has_boundary = False
