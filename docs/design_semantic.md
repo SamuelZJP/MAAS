@@ -145,6 +145,8 @@ class Schema(BaseModel):
 将 JSON 内容直接返回
 ```
 
+若同时启用了 `lorebook` 模块，则编排层会先取出 `semantic_memory`，再将该快照传给 lorebook 模块用于模板词条渲染；语义模块本身不直接依赖 lorebook 代码。
+
 响应中新增 `semantic_memory` 字段：
 
 ```json

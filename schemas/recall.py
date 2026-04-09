@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from schemas.episodes import EpisodeSummary
+from schemas.lorebook import LorebookEntryPayload
 from schemas.semantic import SemanticMemorySnapshot
 
 
@@ -31,5 +32,6 @@ class RecallRequest(BaseModel):
 class RecallResponse(BaseModel):
     recalled_episodes: list[EpisodeSummary]
     semantic_memory: SemanticMemorySnapshot | None = None
+    lorebook_entries: list[LorebookEntryPayload]
     rollback_performed: bool
     rollback_to_round_id: int | None

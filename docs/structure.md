@@ -17,7 +17,8 @@ MAAS/
 │   ├── recall.py
 │   ├── archive.py
 │   ├── episodes.py
-│   └── semantic.py
+│   ├── semantic.py
+│   └── lorebook.py
 │
 ├── core/                              # 编排层：管理流程和模块间依赖
 │   ├── __init__.py
@@ -38,12 +39,16 @@ MAAS/
 │   │   ├── archive.py                 # 语义记忆的归档逻辑（LLM patch + 校验 + 回退）
 │   │   ├── prompts.py                 # 语义记忆专用提示词模板
 │   │   └── schema_loader.py           # 加载 data/{chat_id}.py 中的 Schema
+│   ├── lorebook/                      # 词条记忆（本期实现）
+│   │   ├── __init__.py
+│   │   ├── recall.py                  # 词条召回逻辑（读取词条 + 模板渲染）
+│   │   └── loader.py                  # 从 lorebook/{chat_id}/ 加载 YAML 到数据库
 │   ├── working/                       # 工作记忆（未来）
 │   │   └── __init__.py
-│   ├── personality/                   # 人格系统（未来）
-│   │   └── __init__.py
-│   └── lore/                          # 背景信息（未来）
-│       └── __init__.py
+│
+├── lorebook/                          # 角色级词条文件（single source of truth）
+│   └── 苏菲/
+│       └── 好感度反应.yaml
 │
 ├── repository/                        # 数据访问层
 │   ├── __init__.py
@@ -54,7 +59,8 @@ MAAS/
 │       ├── chats.py
 │       ├── rounds.py
 │       ├── episodes.py
-│       └── semantic.py
+│       ├── semantic.py
+│       └── lorebook.py
 │
 ├── data/                              # 角色级语义记忆 Schema
 │   └── 苏菲.py

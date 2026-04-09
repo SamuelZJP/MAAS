@@ -1,4 +1,4 @@
-# SQLAlchemy ORM 模型定义：chats / rounds / episodes / semantic_memories
+# SQLAlchemy ORM 模型定义：chats / rounds / episodes / semantic_memories / lorebook_entries
 
 from __future__ import annotations
 
@@ -37,6 +37,11 @@ class Chat(Base):
         passive_deletes=True,
     )
     semantic_memories: Mapped[list["SemanticMemory"]] = relationship(
+        back_populates="chat",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    lorebook_entries: Mapped[list["LorebookEntry"]] = relationship(
         back_populates="chat",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -122,4 +127,34 @@ class SemanticMemory(Base):
     chat: Mapped["Chat"] = relationship(back_populates="semantic_memories")
 
 
-__all__ = ["Base", "Chat", "Round", "Episode", "SemanticMemory"]
+class LorebookEntry(Base):
+    __tablename__ = "lorebook_entries"
+    __table_args__ = (
+        CheckConstraint("entry_id >= 1", name="ck_lorebook_entries_entry_id_positive"),
+        CheckConstraint("position IN ('character', 'depth')", name="ck_lorebook_entries_position_valid"),
+        CheckConstraint("sort_order >= 0", name="ck_lorebook_entries_order_non_negative"),
+        CheckConstraint(
+            "(position = 'character' AND depth IS NULL) OR (position = 'depth' AND depth >= 0)",
+            name="ck_lorebook_entries_depth_matches_position",
+        ),
+    )
+
+    chat_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("chats.chat_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    entry_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[str] = mapped_column(String, nullable=False)
+    order: Mapped[int] = mapped_column("sort_order", Integer, nullable=False)
+    depth: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    has_template: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    chat: Mapped["Chat"] = relationship(back_populates="lorebook_entries")
+
+
+__all__ = ["Base", "Chat", "Round", "Episode", "SemanticMemory", "LorebookEntry"]

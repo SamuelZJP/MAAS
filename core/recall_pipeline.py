@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import Settings
 from core.sync import check_and_rollback
 from modules.episodic.recall import recall as episodic_recall
+from modules.lorebook.recall import recall as lorebook_recall
 from modules.semantic.recall import recall as semantic_recall
 from repository.crud.chats import get_chat
 from schemas.recall import RecallResponse
@@ -33,12 +34,22 @@ async def run_recall(
         return RecallResponse(
             recalled_episodes=[],
             semantic_memory=None,
+            lorebook_entries=[],
             rollback_performed=sync_result["rollback_performed"],
             rollback_to_round_id=sync_result["rollback_to_round_id"],
         )
 
     recalled_episodes = []
     semantic_memory = None
+    if "semantic" in chat.enabled_modules:
+        semantic_memory = await semantic_recall(chat_id=chat_id, db_session=db_session)
+    lorebook_entries = []
+    if "lorebook" in chat.enabled_modules:
+        lorebook_entries = await lorebook_recall(
+            chat_id=chat_id,
+            db_session=db_session,
+            semantic_memory=semantic_memory,
+        )
     if "episodic" in chat.enabled_modules:
         recalled_episodes = await episodic_recall(
             chat_id=chat_id,
@@ -49,12 +60,11 @@ async def run_recall(
             llm_client=llm_client,
             recent_rounds_count=config.recent_rounds_count,
         )
-    if "semantic" in chat.enabled_modules:
-        semantic_memory = await semantic_recall(chat_id=chat_id, db_session=db_session)
 
     return RecallResponse(
         recalled_episodes=recalled_episodes,
         semantic_memory=semantic_memory,
+        lorebook_entries=lorebook_entries,
         rollback_performed=sync_result["rollback_performed"],
         rollback_to_round_id=sync_result["rollback_to_round_id"],
     )

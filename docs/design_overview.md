@@ -6,7 +6,9 @@
 
 各功能模块的详细设计（数据模型、流程、提示词等）见各模块目录下的文档：
 
-- 情节记忆：`modules/episodic/README.md`
+- `docs/design_episodic.md`
+- `docs/design_semantic.md`
+- `docs/design_lorebook.md`
 
 ---
 
@@ -30,7 +32,7 @@
 | chat_id | string, PK | 角色/对话唯一标识，由前端提供 |
 | first_message | text | 角色首条消息原文 |
 | first_message_archived | boolean, default false | 首条消息是否已归入某个事件 |
-| enabled_modules | JSON array, default [] | 已启用的模块列表，当前可选值：`"episodic"`、`"semantic"`；其中 `semantic` 只能在初始化时决定 |
+| enabled_modules | JSON array, default [] | 已启用的模块列表，当前可选值：`"episodic"`、`"semantic"`、`"lorebook"`；其中 `semantic` 和 `lorebook` 只能在初始化时决定 |
 | created_at | datetime | 记录创建时间 |
 
 ### 3.2 rounds
@@ -47,7 +49,24 @@
 
 主键：(chat_id, round_id)
 
----
+### 3.3 lorebook_entries
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| chat_id | string, FK → chats | 所属角色 |
+| entry_id | integer | 词条序号，同一 chat 内从 1 起递增 |
+| filename | string | 来源 YAML 文件名（不含扩展名） |
+| content | text | 词条内容，可包含 Jinja2 模板语法 |
+| position | string | 注入位置：`"character"` 或 `"depth"` |
+| order | integer | 注入顺序（同注入层内排序） |
+| depth | integer, nullable | 注入深度，仅 `position = "depth"` 时有效 |
+| has_template | boolean | 是否包含模板语法 |
+| enabled | boolean, default true | 是否启用 |
+| created_at | datetime | 记录创建时间 |
+
+主键：(chat_id, entry_id)
+
+--- 
 
 ## 4. API 设计
 
@@ -62,7 +81,7 @@
 {
   "chat_id": "char_alice_01",
   "first_message": "你好，我是Alice...",
-  "enabled_modules": ["episodic", "semantic"]
+  "enabled_modules": ["episodic", "semantic", "lorebook"]
 }
 ```
 
@@ -83,13 +102,13 @@
 请求体（部分更新）：
 ```json
 {
-  "enabled_modules": ["episodic", "semantic"]
+  "enabled_modules": ["episodic", "semantic", "lorebook"]
 }
 ```
 
 说明：
-- `semantic` 模块只能在 `POST /chats` 初始化时启用
-- 已初始化的 chat 不允许通过 `PATCH /chats/{chat_id}` 新增或移除 `semantic`
+- `semantic` 和 `lorebook` 模块只能在 `POST /chats` 初始化时启用
+- 已初始化的 chat 不允许通过 `PATCH /chats/{chat_id}` 新增或移除 `semantic` 或 `lorebook`
 
 #### DELETE /chats/{chat_id} — 删除角色对话及其所有关联数据
 
@@ -143,12 +162,21 @@
       "地点": "教室"
     }
   },
+  "lorebook_entries": [
+    {
+      "entry_id": 1,
+      "content": "苏菲对<user>保持礼貌但有距离感。",
+      "position": "character",
+      "order": 10,
+      "depth": null
+    }
+  ],
   "rollback_performed": false,
   "rollback_to_round_id": null
 }
 ```
 
-若无模块被启用或无可召回内容，`recalled_episodes` 为空数组，`semantic_memory` 为 `null`。
+若无模块被启用或无可召回内容，`recalled_episodes` 与 `lorebook_entries` 为空数组，`semantic_memory` 为 `null`。
 
 #### POST /archive — 记忆归档
 
@@ -268,8 +296,8 @@
 
 | 预留点 | 说明 |
 |--------|------|
-| enabled_modules | chats 表中的 JSON 数组，当前已支持 `"episodic"`、`"semantic"`，未来仍可继续扩展 `"working"`、`"personality"`、`"lore"` |
-| /recall 响应结构 | 当前返回 `recalled_episodes`、`semantic_memory`，未来可继续扩展 `working_memory` 等字段 |
+| enabled_modules | chats 表中的 JSON 数组，当前已支持 `"episodic"`、`"semantic"`、`"lorebook"`，未来仍可继续扩展 `"working"` 等模块 |
+| /recall 响应结构 | 当前返回 `recalled_episodes`、`semantic_memory`、`lorebook_entries`，未来可继续扩展 `working_memory` 等字段 |
 | /archive 响应结构 | 当前返回 episodic 与 semantic 的归档结果，未来可继续扩展其他模块结果 |
 | context 字段 | 召回和归档请求中的 context 为开放结构，仅承载后端不持有的外部信息；未来模块所需上下文可自由扩展 |
 | 情节记忆预筛选 | 当事件数量增长后，可在 LLM 筛选前接入向量检索做粗筛，API 接口无需变更 |

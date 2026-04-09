@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.lorebook.loader import LorebookLoadError, load_lorebook_entries
 from modules.semantic.schema_loader import SemanticSchemaError, build_default_snapshot
 from repository.crud.chats import create_chat, delete_chat, get_chat, update_chat
 from repository.crud.semantic import create_semantic_memory
@@ -36,7 +37,9 @@ async def create_chat_endpoint(
                 round_id=0,
                 content=semantic_snapshot,
             )
-    except SemanticSchemaError as exc:
+        if "lorebook" in payload.enabled_modules:
+            await load_lorebook_entries(payload.chat_id, db_session)
+    except (SemanticSchemaError, LorebookLoadError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     await db_session.commit()
@@ -67,12 +70,13 @@ async def update_chat_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found.")
 
     if payload.enabled_modules is not None:
-        existing_has_semantic = "semantic" in existing_chat.enabled_modules
-        requested_has_semantic = "semantic" in payload.enabled_modules
-        if existing_has_semantic != requested_has_semantic:
+        immutable_modules = {"semantic", "lorebook"}
+        existing_immutable = immutable_modules.intersection(existing_chat.enabled_modules)
+        requested_immutable = immutable_modules.intersection(payload.enabled_modules)
+        if existing_immutable != requested_immutable:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Semantic module can only be configured during chat creation.",
+                detail="Semantic and lorebook modules can only be configured during chat creation.",
             )
 
     chat = await update_chat(db_session, chat_id, **payload.model_dump(exclude_unset=True))
