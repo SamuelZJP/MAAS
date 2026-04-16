@@ -13,6 +13,8 @@
 | 概念 | 说明 |
 |------|------|
 | Schema | 角色专属的 Pydantic 模型定义，描述该角色语义记忆的结构、默认值和校验规则，手动编码维护 |
+| Reference Info | 角色专属的补充参考信息文本，在归档提示词中注入到 `<Reference_Info>` 区块 |
+| Variable Update Rules | 角色专属的变量更新规则文本，在归档提示词中注入到 `<Variable_Update_Rules>` 区块 |
 | 快照（Snapshot） | 某一回合结束时语义记忆的完整 JSON 状态，每轮存储一份 |
 | JSON Patch | LLM 输出的变量更新指令（RFC 6902 子集），用于在现有快照上执行增量修改 |
 
@@ -39,11 +41,26 @@ data/{chat_id}.py
 - 序列化为 JSON：用于数据库存储
 - 序列化为 YAML：用于 LLM 提示词中的可读展示
 
+除此之外，每个 `data/{chat_id}.py` 还需额外导出两个字符串常量：
+
+- `REFERENCE_INFO`：角色专属的参考背景、设定补充、衣橱说明等自由文本
+- `VARIABLE_UPDATE_RULES`：角色专属的变量更新规则文本
+
+两者均作为运行时提示词片段直接注入，不单独入库。
+
 ### 3.3 示例
 
 ```python
 # data/苏菲.py
 from pydantic import BaseModel, model_validator
+
+REFERENCE_INFO = """
+# 角色专属参考信息
+"""
+
+VARIABLE_UPDATE_RULES = """
+# 角色专属变量更新规则
+"""
 
 class 世界(BaseModel):
     日期: str = "YYYY-MM-DD 星期X"
@@ -125,6 +142,8 @@ class Schema(BaseModel):
 
 初始化时（`POST /chats`），若 `enabled_modules` 包含 `"semantic"`，系统加载 `data/{chat_id}.py` 中的 Schema，以默认值生成 round_id=0 的基线快照并写入 `semantic_memories`。
 
+初始化阶段只使用 `Schema` 生成基线快照；`REFERENCE_INFO` 与 `VARIABLE_UPDATE_RULES` 不写入数据库，而是在后续归档时按 `chat_id` 动态加载。
+
 已初始化的 chat 不允许通过 `PATCH /chats/{chat_id}` 中途新增或移除 `"semantic"`。
 
 ---
@@ -182,6 +201,8 @@ class Schema(BaseModel):
 │ 输入：当前语义记忆（YAML）                │
 │      + 本回合 user_input + ai_response   │
 │      + context.extra                     │
+│      + REFERENCE_INFO                    │
+│      + VARIABLE_UPDATE_RULES             │
 │ 输出：JSON Patch 指令                     │
 └──────────────────────────────────────────┘
       │
@@ -201,6 +222,8 @@ class Schema(BaseModel):
 ```
 
 若 LLM 返回非法内容、Patch 全部失败、Schema 校验失败或其他语义模块内部错误，则不影响本轮 `rounds` 写入与其他模块归档；系统直接沿用上一回合（n-1）的完整快照，写入当前回合（n）的 `semantic_memories`，并返回 `semantic_updated: false`。
+
+若 `data/{chat_id}.py` 缺少 `REFERENCE_INFO` 或 `VARIABLE_UPDATE_RULES`，视为语义模块内部错误，按同样的回退策略处理。
 
 ---
 
@@ -231,12 +254,20 @@ class Schema(BaseModel):
 ## 上下文
 {{context.extra}}
 
+<Reference_Info>
+{{reference_info}}
+</Reference_Info>
+
 ## 当前语义记忆
 {{current_memory_yaml}}
 
 ## 本回合对话
 用户输入：{{user_input}}
 AI回复：{{ai_response}}
+
+<Variable_Update_Rules>
+{{variable_update_rules}}
+</Variable_Update_Rules>
 
 ## 任务
 分析本回合对话，判断哪些变量发生了变化，并生成对应的 JSON Patch 指令。
@@ -280,10 +311,10 @@ modules/
     recall.py        # 召回逻辑（读取最新快照）
     archive.py       # 归档逻辑（LLM 调用 + patch 应用 + 校验）
     prompts.py       # 提示词模板
-    schema_loader.py # 动态加载 data/{chat_id}.py 中的 Schema
+    schema_loader.py # 动态加载 data/{chat_id}.py 中的 Schema 与角色专属提示词上下文
 
 data/
-  苏菲.py            # 角色"苏菲"的语义记忆 Schema
+  苏菲.py            # 角色"苏菲"的语义记忆 Schema + REFERENCE_INFO + VARIABLE_UPDATE_RULES
   ...                # 其他角色
 ```
 

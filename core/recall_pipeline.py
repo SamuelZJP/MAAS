@@ -27,8 +27,11 @@ async def run_recall(
     llm_client: LLMClient,
     config: Settings,
 ) -> RecallResponse:
+
+    # 回滚检查: 检测前端与后端的回合 ID 是否一致，若前端有删除则执行回滚
     sync_result = await check_and_rollback(chat_id, latest_round_id, db_session)
 
+    # 获取当前对话角色
     chat = await get_chat(db_session, chat_id)
     if chat is None:
         return RecallResponse(
@@ -39,10 +42,12 @@ async def run_recall(
             rollback_to_round_id=sync_result["rollback_to_round_id"],
         )
 
-    recalled_episodes = []
+    # 语义记忆召回: 返回当前语义记忆快照
     semantic_memory = None
     if "semantic" in chat.enabled_modules:
         semantic_memory = await semantic_recall(chat_id=chat_id, db_session=db_session)
+
+    # 词条记忆召回: 返回当前词条记忆
     lorebook_entries = []
     if "lorebook" in chat.enabled_modules:
         lorebook_entries = await lorebook_recall(
@@ -50,6 +55,9 @@ async def run_recall(
             db_session=db_session,
             semantic_memory=semantic_memory,
         )
+
+    # 情节记忆召回: 根据范围召回与当前对话相关的历史事件
+    recalled_episodes = []
     if "episodic" in chat.enabled_modules:
         recalled_episodes = await episodic_recall(
             chat_id=chat_id,

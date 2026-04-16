@@ -29,7 +29,7 @@ async def run_archive(
 ) -> ArchiveResponse:
     normalized_round_data = _normalize_round_data(round_data)
 
-    # 幂等性保护：重复 round_id 直接跳过
+    # 重复对话回合检查，遇到重复id直接跳过
     existing_round = await db_session.get(Round, (chat_id, normalized_round_data["round_id"]))
     if existing_round is not None:
         return ArchiveResponse(
@@ -40,6 +40,7 @@ async def run_archive(
             semantic_memory=None,
         )
 
+    # 获取当前对话角色
     chat = await get_chat(db_session, chat_id)
     if chat is None:
         return ArchiveResponse(
@@ -55,6 +56,7 @@ async def run_archive(
     semantic_updated = False
     semantic_memory = None
 
+    # 语义记忆归档: 保存好感度、世界状态等结构性变量
     if "semantic" in chat.enabled_modules:
         semantic_result = await semantic_archive(
             chat_id=chat_id,
@@ -65,9 +67,18 @@ async def run_archive(
             db_session=db_session,
             llm_client=llm_client,
         )
+        if not semantic_result.get("archive_succeeded", False):
+            return ArchiveResponse(
+                round_stored=False,
+                episode_created=False,
+                new_episode=None,
+                semantic_updated=False,
+                semantic_memory=None,
+            )
         semantic_updated = bool(semantic_result.get("semantic_updated"))
         semantic_memory = semantic_result.get("semantic_memory")
 
+    # 生成对话回合的摘要
     generated_summary = await generate_summary(
         user_input=normalized_round_data["user_input"],
         ai_response=normalized_round_data["ai_response"],
@@ -77,8 +88,10 @@ async def run_archive(
     )
     normalized_round_data["summary"] = generated_summary.strip()
 
+    # 存储本轮对话回合
     stored_round = await _store_round(chat_id, normalized_round_data, db_session)
 
+    # 情节记忆归档: 检测是否存在事件边界，若有则生成事件摘要
     if "episodic" in chat.enabled_modules:
         episodic_result = await episodic_archive(
             chat_id=chat_id,

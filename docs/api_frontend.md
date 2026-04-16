@@ -32,6 +32,7 @@
 
 说明：
 
+- 当前正式约定 `chat_id == 角色名`
 - `semantic` 和 `lorebook` 只能在初始化时确定
 - 若启用了 `semantic` 但缺少对应 `data/{chat_id}.py`，返回 `400`
 - 若启用了 `lorebook` 且词条 YAML 非法，返回 `400`

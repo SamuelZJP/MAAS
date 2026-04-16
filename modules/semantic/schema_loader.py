@@ -41,6 +41,14 @@ def dump_snapshot_yaml(chat_id: str, snapshot: dict[str, Any]) -> str:
     ).strip()
 
 
+def load_reference_info(chat_id: str) -> str:
+    return _load_required_text_export(chat_id, "REFERENCE_INFO")
+
+
+def load_variable_update_rules(chat_id: str) -> str:
+    return _load_required_text_export(chat_id, "VARIABLE_UPDATE_RULES")
+
+
 def load_schema_model(chat_id: str) -> type[BaseModel]:
     file_path = DATA_DIR / f"{chat_id}.py"
     if not file_path.exists():
@@ -62,6 +70,18 @@ def _load_module(file_path: Path, chat_id: str) -> ModuleType:
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_required_text_export(chat_id: str, export_name: str) -> str:
+    file_path = DATA_DIR / f"{chat_id}.py"
+    if not file_path.exists():
+        raise SemanticSchemaError(f"Semantic schema file not found for chat '{chat_id}'.")
+
+    module = _load_module(file_path, chat_id)
+    value = getattr(module, export_name, None)
+    if not isinstance(value, str) or not value.strip():
+        raise SemanticSchemaError(f"{export_name} is missing or invalid in '{file_path.name}'.")
+    return value.strip()
 
 
 def _dump_model(instance: BaseModel) -> dict[str, Any]:

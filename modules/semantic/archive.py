@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 from typing import Any
 
@@ -12,6 +13,8 @@ from modules.semantic.schema_loader import (
     SemanticSchemaError,
     build_default_snapshot,
     dump_snapshot_yaml,
+    load_reference_info,
+    load_variable_update_rules,
     validate_snapshot,
 )
 from repository.crud.semantic import get_latest_semantic_memory, upsert_semantic_memory
@@ -20,6 +23,7 @@ from shared.prompt_utils import render_prompt
 
 
 ARCHIVE_SYSTEM_PROMPT = "你是一个记忆管理助手。"
+logger = logging.getLogger(__name__)
 
 
 async def archive(
@@ -43,23 +47,36 @@ async def archive(
 
     try:
         current_memory_yaml = dump_snapshot_yaml(chat_id, previous_snapshot)
+        prompt_text = render_prompt(
+            SEMANTIC_UPDATE_PROMPT,
+            context=_normalize_context(context),
+            current_memory_yaml=current_memory_yaml,
+            user_input=user_input,
+            ai_response=ai_response,
+            reference_info=load_reference_info(chat_id),
+            variable_update_rules=load_variable_update_rules(chat_id),
+        )
         response_text = await llm_client.generate_text(
             system_prompt=ARCHIVE_SYSTEM_PROMPT,
-            user_prompt=render_prompt(
-                SEMANTIC_UPDATE_PROMPT,
-                context=_normalize_context(context),
-                current_memory_yaml=current_memory_yaml,
-                user_input=user_input,
-                ai_response=ai_response,
-            ),
+            user_prompt=prompt_text,
         )
         patch_operations = _parse_patch_operations(response_text)
         patched_snapshot = _apply_patch_operations(previous_snapshot, patch_operations)
         next_snapshot = validate_snapshot(chat_id, patched_snapshot)
         semantic_updated = next_snapshot != previous_snapshot
     except Exception:
-        next_snapshot = previous_snapshot
-        semantic_updated = False
+        logger.exception(
+            "Semantic archive failed; aborting archive update",
+            extra={
+                "chat_id": chat_id,
+                "round_id": round_id,
+            },
+        )
+        return {
+            "archive_succeeded": False,
+            "semantic_updated": False,
+            "semantic_memory": None,
+        }
 
     await upsert_semantic_memory(
         db_session,
@@ -68,6 +85,7 @@ async def archive(
         content=next_snapshot,
     )
     return {
+        "archive_succeeded": True,
         "semantic_updated": semantic_updated,
         "semantic_memory": next_snapshot,
     }

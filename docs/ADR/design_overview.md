@@ -29,7 +29,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| chat_id | string, PK | 角色/对话唯一标识，由前端提供 |
+| chat_id | string, PK | 角色/对话唯一标识，当前正式约定为“角色名”，由前端提供且需与本地角色资源文件名一致 |
 | first_message | text | 角色首条消息原文 |
 | first_message_archived | boolean, default false | 首条消息是否已归入某个事件 |
 | enabled_modules | JSON array, default [] | 已启用的模块列表，当前可选值：`"episodic"`、`"semantic"`、`"lorebook"`；其中 `semantic` 和 `lorebook` 只能在初始化时决定 |
@@ -79,8 +79,8 @@
 请求体：
 ```json
 {
-  "chat_id": "char_alice_01",
-  "first_message": "你好，我是Alice...",
+  "chat_id": "苏菲",
+  "first_message": "你好，我是苏菲...",
   "enabled_modules": ["episodic", "semantic", "lorebook"]
 }
 ```
@@ -88,10 +88,14 @@
 响应 201：
 ```json
 {
-  "chat_id": "char_alice_01",
+  "chat_id": "苏菲",
   "created_at": "2026-04-03T12:00:00Z"
 }
 ```
+
+说明：
+- 当前运行约定 `chat_id == 角色名`
+- 当启用 `semantic` 或 `lorebook` 时，`chat_id` 还用作本地文件查找键，需要与 `data/{chat_id}.py`、`lorebook/{chat_id}/` 对应
 
 #### GET /chats/{chat_id} — 获取角色对话配置
 
@@ -125,7 +129,7 @@
 请求体：
 ```json
 {
-  "chat_id": "char_alice_01",
+  "chat_id": "苏菲",
   "latest_round_id": 15,
   "recall_start_round_id": 3,
   "recall_end_round_id": 8,
@@ -185,7 +189,7 @@
 请求体：
 ```json
 {
-  "chat_id": "char_alice_01",
+  "chat_id": "苏菲",
   "round_id": 16,
   "user_input": "用户输入原文",
   "ai_response": "AI回复原文",
