@@ -13,6 +13,9 @@ import httpx
 from config import Settings, get_settings
 
 
+LLM_STREAMING_ENABLED = True
+
+
 class LLMClientError(Exception):
     pass
 
@@ -90,6 +93,11 @@ class LLMClient:
                 user_prompt=user_prompt,
             )
             try:
+                if LLM_STREAMING_ENABLED:
+                    stream_payload = dict(payload)
+                    stream_payload["stream"] = True
+                    return await self._post_stream(payload=stream_payload, headers=headers)
+
                 response = await self._post_json(payload=payload, headers=headers)
                 return self._extract_text(response)
             except (httpx.HTTPError, LLMClientError) as exc:
@@ -121,6 +129,91 @@ class LLMClient:
             response.raise_for_status()
             return response.json()
 
+    # 发送流式 HTTP POST 请求，累积 OpenAI 兼容 SSE 分片后返回完整文本
+    async def _post_stream(self, *, payload: Mapping[str, Any], headers: Mapping[str, str]) -> str:
+        text_parts: list[str] = []
+
+        if self._client is not None:
+            async with self._client.stream(
+                "POST",
+                self.endpoint,
+                json=dict(payload),
+                headers=dict(headers),
+                timeout=self.timeout_seconds,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    self._append_stream_line(line, text_parts)
+        else:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                async with client.stream(
+                    "POST",
+                    self.endpoint,
+                    json=dict(payload),
+                    headers=dict(headers),
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        self._append_stream_line(line, text_parts)
+
+        text = "".join(text_parts).strip()
+        if not text:
+            raise LLMClientError("LLM stream response does not contain text content.")
+        return text
+
+    # 追加流式响应行：追加流式响应行
+    def _append_stream_line(self, line: str, text_parts: list[str]) -> None:
+        line = line.strip()
+        if not line or line.startswith(":"):
+            return
+
+        if line.startswith("data:"):
+            line = line.removeprefix("data:").strip()
+
+        if line == "[DONE]":
+            return
+
+        try:
+            chunk = json.loads(line)
+        except json.JSONDecodeError:
+            return
+
+        text = self._extract_stream_chunk_text(chunk)
+        if text:
+            text_parts.append(text)
+
+    # 提取流式响应块文本：提取流式响应块文本
+    def _extract_stream_chunk_text(self, chunk: Mapping[str, Any]) -> str:
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+
+        choice = choices[0]
+        if not isinstance(choice, Mapping):
+            return ""
+
+        delta = choice.get("delta")
+        if isinstance(delta, Mapping):
+            content = delta.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return self._extract_text_parts(content)
+
+        text = choice.get("text")
+        if isinstance(text, str):
+            return text
+
+        message = choice.get("message")
+        if isinstance(message, Mapping):
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return self._extract_text_parts(content)
+
+        return ""
+
     # 输出 LLM 请求日志到控制台
     def _log_request(
         self,
@@ -151,20 +244,25 @@ class LLMClient:
             if isinstance(content, str):
                 return content.strip()
             if isinstance(content, list):
-                text_parts = []
-                for item in content:
-                    if isinstance(item, Mapping) and item.get("type") == "text":
-                        text = item.get("text")
-                        if isinstance(text, str):
-                            text_parts.append(text)
-                if text_parts:
-                    return "\n".join(text_parts).strip()
+                text = self._extract_text_parts(content)
+                if text:
+                    return text.strip()
 
         text = choices[0].get("text")
         if isinstance(text, str):
             return text.strip()
 
         raise LLMClientError("LLM response does not contain text content.")
+
+    # 提取文本部分：提取文本部分
+    def _extract_text_parts(self, content: list[Any]) -> str:
+        text_parts = []
+        for item in content:
+            if isinstance(item, Mapping) and item.get("type") == "text":
+                text = item.get("text")
+                if isinstance(text, str):
+                    text_parts.append(text)
+        return "\n".join(text_parts)
 
     # mock 模式：根据提示词关键字返回预设响应，用于本地测试
     def _mock_response(self, user_prompt: str) -> str:
@@ -236,4 +334,4 @@ class LLMClient:
         return False
 
 
-__all__ = ["LLMClient", "LLMClientError"]
+__all__ = ["LLMClient", "LLMClientError", "LLM_STREAMING_ENABLED"]

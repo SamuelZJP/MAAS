@@ -37,7 +37,6 @@ pip install -r requirements.txt
 常用配置项：
 
 - `MAAS_DATABASE_URL`：数据库连接串，默认值为 `sqlite+aiosqlite:///./maas.db`
-- `MAAS_RECENT_ROUNDS_COUNT`：召回时读取的近期回合数，默认 `10`
 - `MAAS_LLM_ENDPOINT`：外部 LLM API 地址
 - `MAAS_LLM_MODEL`：外部 LLM 模型标识
 - `MAAS_LLM_API_KEY`：外部 LLM API Key
@@ -55,7 +54,6 @@ MAAS_LLM_API_KEY=[TODO]
 MAAS_LLM_TIMEOUT_SECONDS=30
 MAAS_LLM_MAX_RETRIES=2
 MAAS_LLM_MOCK_MODE=false
-MAAS_RECENT_ROUNDS_COUNT=10
 ```
 
 补充说明：

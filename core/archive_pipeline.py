@@ -56,7 +56,7 @@ async def run_archive(
     semantic_updated = False
     semantic_memory = None
 
-    # 语义记忆归档: 保存好感度、世界状态等结构性变量
+    # 语义记忆归档: 更新好感度、世界状态等结构性变量
     if "semantic" in chat.enabled_modules:
         semantic_result = await semantic_archive(
             chat_id=chat_id,
@@ -91,7 +91,8 @@ async def run_archive(
     # 存储本轮对话回合
     stored_round = await _store_round(chat_id, normalized_round_data, db_session)
 
-    # 情节记忆归档: 检测是否存在事件边界，若有则生成事件摘要
+    # 情节记忆归档: 按跨日 + 回合数阈值判定是否触发，若触发则生成事件摘要
+    # TODO: 当前情节记忆归档软失败时的逻辑处理暂时不太规范，需要贴合"一处失败，全部失败"的理念
     if "episodic" in chat.enabled_modules:
         episodic_result = await episodic_archive(
             chat_id=chat_id,
@@ -103,6 +104,8 @@ async def run_archive(
         if episode_created and episodic_result.get("new_episode") is not None:
             new_episode = EpisodeDetail(**episodic_result["new_episode"])
 
+    # config变量的临时占用
+    # TODO: 在未来考虑移除
     _ = config
 
     return ArchiveResponse(

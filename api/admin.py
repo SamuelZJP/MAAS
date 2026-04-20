@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repository.crud.episodes import delete_episode, get_all_episodes
-from repository.crud.rounds import get_rounds
+from repository.crud.rounds import get_rounds, get_rounds_in_range
 from repository.crud.semantic import (
     get_latest_semantic_memory,
     get_semantic_memory,
@@ -29,6 +29,26 @@ async def list_rounds_endpoint(
 ) -> list[dict]:
     rounds = await get_rounds(db_session, chat_id, archived=archived)
     return [_serialize_round(round_) for round_ in rounds]
+
+
+# 按回合范围 [start_round_id, end_round_id] 返回回合摘要列表
+@router.get("/round-summaries")
+async def list_round_summaries_endpoint(
+    chat_id: str,
+    start_round_id: int = Query(..., ge=1, description="起始回合 ID（含）"),
+    end_round_id: int = Query(..., ge=1, description="结束回合 ID（含）"),
+    db_session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    if end_round_id < start_round_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_round_id must be greater than or equal to start_round_id.",
+        )
+
+    rounds = await get_rounds_in_range(
+        db_session, chat_id, start_round_id, end_round_id
+    )
+    return [{"round_id": round_.round_id, "summary": round_.summary} for round_ in rounds]
 
 
 # 获取单个回合详情

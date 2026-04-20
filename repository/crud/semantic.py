@@ -61,6 +61,25 @@ async def list_semantic_memories(
     return list(result.all())
 
 
+async def list_semantic_memories_by_round_ids(
+    session: AsyncSession,
+    chat_id: str,
+    round_ids: list[int],
+) -> list[SemanticMemory]:
+    if not round_ids:
+        return []
+    stmt = (
+        select(SemanticMemory)
+        .where(
+            SemanticMemory.chat_id == chat_id,
+            SemanticMemory.round_id.in_(round_ids),
+        )
+        .order_by(SemanticMemory.round_id.asc())
+    )
+    result = await session.scalars(stmt)
+    return list(result.all())
+
+
 async def upsert_semantic_memory(
     session: AsyncSession,
     *,

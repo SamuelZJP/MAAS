@@ -15,21 +15,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    recent_rounds_count: int = Field(
-        default=10,
-        ge=1,
-        description="Number of recent round summaries loaded during recall.",
-    )
     llm_endpoint: str = Field(
         default="https://api.deepseek.com/chat/completions",
         description="HTTP endpoint for the external LLM API.",
     )
     llm_model: str = Field(
-        default="deepseek-chat",
+        default="deepseek-v4-pro",
         description="Model identifier used when calling the external LLM API.",
     )
     llm_api_key: str = Field(
-        default="sk-d7a8648b5f64479d87efdc891a0660e0",
+        default="sk-example",
         description="Optional API key for the external LLM API.",
     )
     llm_timeout_seconds: float = Field(

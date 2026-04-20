@@ -21,6 +21,7 @@ template_environment = Environment(
 )
 
 
+# 词条记忆召回：返回当前词条记忆
 async def recall(
     chat_id: str,
     db_session: AsyncSession,
@@ -29,6 +30,7 @@ async def recall(
     records = await list_enabled_lorebook_entries(db_session, chat_id)
     entries: list[LorebookEntryPayload] = []
 
+    # 遍历词条记录，渲染模板词条，若渲染失败则跳过
     for record in records:
         if record.has_template:
             if semantic_memory is None:

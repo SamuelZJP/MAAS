@@ -58,6 +58,26 @@ async def get_max_round_id(session: AsyncSession, chat_id: str) -> int | None:
     return await session.scalar(stmt)
 
 
+# 获取指定 chat 在回合范围 [start_round_id, end_round_id] 内的回合，按 round_id 升序
+async def get_rounds_in_range(
+    session: AsyncSession,
+    chat_id: str,
+    start_round_id: int,
+    end_round_id: int,
+) -> list[Round]:
+    stmt = (
+        select(Round)
+        .where(
+            Round.chat_id == chat_id,
+            Round.round_id >= start_round_id,
+            Round.round_id <= end_round_id,
+        )
+        .order_by(Round.round_id.asc())
+    )
+    result = await session.scalars(stmt)
+    return list(result.all())
+
+
 # 获取所有未归档的回合（episode_id 为 null），按 round_id 升序
 async def get_unarchived_rounds(session: AsyncSession, chat_id: str) -> list[Round]:
     stmt = (
@@ -78,18 +98,6 @@ async def get_latest_archived_round(session: AsyncSession, chat_id: str) -> Roun
         .limit(1)
     )
     return await session.scalar(stmt)
-
-
-# 获取最近 N 轮回合（按 round_id 正序返回，用于组装 LLM 上下文）
-async def get_recent_rounds(session: AsyncSession, chat_id: str, limit: int) -> list[Round]:
-    stmt = (
-        select(Round)
-        .where(Round.chat_id == chat_id)
-        .order_by(Round.round_id.desc())
-        .limit(limit)
-    )
-    result = await session.scalars(stmt)
-    return list(reversed(result.all()))
 
 
 # 批量更新指定回合的 episode_id（归档时关联事件，或回滚时重置为 null）

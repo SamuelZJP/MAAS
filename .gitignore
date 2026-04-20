@@ -9,12 +9,14 @@ venv/
 env/
 ENV/
 .venv/
+.env
 .env/
 
 # Data
 maas.db
 data/
 /lorebook/
+/lorebook_lib/
 
 # Prompt
 AGENTS.md

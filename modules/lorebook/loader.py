@@ -10,10 +10,12 @@ LOREBOOK_DIR = Path(__file__).resolve().parents[2] / "lorebook"
 POSITION_ORDER = {"character": 0, "depth": 1}
 
 
+# TODO: 添加自定义错误类，用于捕获词条文件加载失败的情况
 class LorebookLoadError(Exception):
     pass
 
 
+# 从词条文件中加载词条记录
 async def load_lorebook_entries(chat_id: str, db_session) -> int:
     entries = parse_lorebook_files(chat_id)
     if not entries:
@@ -23,6 +25,7 @@ async def load_lorebook_entries(chat_id: str, db_session) -> int:
     return len(entries)
 
 
+# 解析词条文件
 def parse_lorebook_files(chat_id: str) -> list[dict[str, Any]]:
     directory = LOREBOOK_DIR / chat_id
     if not directory.exists() or not directory.is_dir():
@@ -38,6 +41,7 @@ def parse_lorebook_files(chat_id: str) -> list[dict[str, Any]]:
     return entries
 
 
+# 解析单个词条文件
 def _parse_lorebook_file(file_path: Path) -> dict[str, Any]:
     try:
         import yaml

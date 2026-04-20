@@ -1,140 +1,98 @@
-# 情节记忆的召回逻辑：筛选与当前对话相关的历史事件
+# 情节记忆的召回逻辑：根据回合分区将事件归入"情节记忆"或"近期摘要"
 
 from __future__ import annotations
 
-import json
-import re
 from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.episodic.prompts import RECALL_PROMPT
-from repository.crud.episodes import (
-    get_episodes_by_ids,
-    get_episodes_overlapping_round_range,
-)
-from repository.crud.rounds import get_recent_rounds
+from repository.crud.episodes import get_all_episodes
+from repository.crud.rounds import get_max_round_id, get_rounds_in_range
 from schemas.episodes import EpisodeSummary
-from shared.llm_client import LLMClient
-from shared.prompt_utils import render_prompt
+from schemas.recall import RecalledSummary
 
 
-RECALL_SYSTEM_PROMPT = "你是一个记忆管理助手。"
-
-
-# 情节记忆召回：根据召回范围查询候选事件，再由 LLM 筛选出相关事件
+# 情节记忆与近期摘要的联合召回。
+#
+# 输入：
+# - max_archived_summary_rounds：近期摘要中"已归档回合摘要"部分允许包含的最大回合数。
+# - active_rounds_count：当前对话区间所占的回合数（最近 N 个回合，不返回）。
+#
+# 算法（以"回滚后 DB 中最大 round_id"为锚点）：
+# 1. 非当前对话回合区间：round_id ∈ [1, max_round_id - active_rounds_count]，简称 [1, threshold]。
+# 2. 该区间内 episode_id 为空的"未归档回合"全部进入近期摘要。
+# 3. 已归档事件按 episode_id 升序排列后，从最新事件开始倒序累加：
+#    - 始终保证至少 1 个事件被纳入近期摘要（即使该事件回合数已经超过 limit）。
+#    - 后续事件仅当"累计回合数 + 当前事件回合数 ≤ limit"时才纳入，否则停止累加。
+# 4. 被纳入近期摘要的事件覆盖的回合摘要进入近期摘要；其余更早的事件作为情节记忆返回。
 async def recall(
     chat_id: str,
-    context: Any,
-    recall_start_round_id: int | None,
-    recall_end_round_id: int | None,
+    max_archived_summary_rounds: int,
+    active_rounds_count: int,
     db_session: AsyncSession,
-    llm_client: LLMClient,
-    recent_rounds_count: int,
-) -> list[EpisodeSummary]:
-    # 未提供完整召回范围时不进行召回
-    if recall_start_round_id is None or recall_end_round_id is None:
-        return []
+) -> tuple[list[EpisodeSummary], list[RecalledSummary]]:
+    max_round_id = await get_max_round_id(db_session, chat_id)
+    if max_round_id is None:
+        return [], []
 
-    episodes = await get_episodes_overlapping_round_range(
-        db_session,
-        chat_id,
-        recall_start_round_id,
-        recall_end_round_id,
-    )
-    if not episodes:
-        return []
+    # 非当前对话回合区间的上界（含）
+    threshold = max_round_id - active_rounds_count
+    if threshold < 1:
+        return [], []
 
-    recent_rounds = await get_recent_rounds(db_session, chat_id, recent_rounds_count)
-    recent_rounds_text = _build_recent_rounds_text(recent_rounds)
+    all_episodes = await get_all_episodes(db_session, chat_id)
 
-    user_prompt = render_prompt(
-        RECALL_PROMPT,
-        recent_rounds_text=recent_rounds_text,
-        context=_normalize_context(context),
-        episodes=episodes,
-    )
-    response_text = await llm_client.generate_text(
-        system_prompt=RECALL_SYSTEM_PROMPT,
-        user_prompt=user_prompt,
+    # 选出"进入近期摘要"的事件集合（从最新事件向前累加，至少包含一个事件）
+    summary_episode_ids = _select_summary_episode_ids(
+        all_episodes, max_archived_summary_rounds
     )
 
-    episode_ids = _parse_episode_ids(response_text)
-    if not episode_ids:
-        return []
+    # 剩余的更早事件作为情节记忆返回（按 episode_id 升序）
+    recalled_episodes_orm = [
+        episode for episode in all_episodes if episode.episode_id not in summary_episode_ids
+    ]
 
-    selected_episodes = await get_episodes_by_ids(db_session, chat_id, episode_ids)
+    # 非当前对话区间内的所有回合：未归档全部保留，已归档仅保留进入近期摘要的事件对应的回合
+    candidate_rounds = await get_rounds_in_range(db_session, chat_id, 1, threshold)
+    recalled_summaries = [
+        RecalledSummary(round_id=round_.round_id, summary=round_.summary)
+        for round_ in candidate_rounds
+        if round_.episode_id is None or round_.episode_id in summary_episode_ids
+    ]
+
+    return _to_episode_summaries(recalled_episodes_orm), recalled_summaries
+
+
+# 选出进入近期摘要的事件 ID 集合（按算法：从最新事件向前累加，至少 1 个）
+def _select_summary_episode_ids(
+    all_episodes: Sequence[Any], max_archived_summary_rounds: int
+) -> set[int]:
+    summary_ids: set[int] = set()
+    total_rounds = 0
+    for episode in reversed(all_episodes):
+        episode_round_count = episode.end_round_id - episode.start_round_id + 1
+        if not summary_ids:
+            # 硬约束：至少包含一个事件，即使该事件本身超过上限也要纳入
+            summary_ids.add(episode.episode_id)
+            total_rounds += episode_round_count
+            continue
+        if total_rounds + episode_round_count > max_archived_summary_rounds:
+            break
+        summary_ids.add(episode.episode_id)
+        total_rounds += episode_round_count
+    return summary_ids
+
+
+# 将事件 ORM 记录转换为响应模型
+def _to_episode_summaries(episodes: Sequence[Any]) -> list[EpisodeSummary]:
     return [
         EpisodeSummary(
             episode_id=episode.episode_id,
             title=episode.title,
             summary=episode.summary,
+            start_round_id=episode.start_round_id,
+            end_round_id=episode.end_round_id,
         )
-        for episode in selected_episodes
+        for episode in episodes
     ]
-
-
-# 将近期回合摘要拼接为文本，供 LLM 上下文使用
-def _build_recent_rounds_text(rounds: Sequence[Any]) -> str:
-    if not rounds:
-        return "无近期回合摘要"
-    return "\n".join(f"[回合{round.round_id}] {round.summary}" for round in rounds)
-
-
-# 将 context 统一转为字典格式
-def _normalize_context(context: Any) -> dict[str, Any]:
-    if context is None:
-        return {"user_input": "", "extra": ""}
-    if hasattr(context, "model_dump"):
-        return context.model_dump()
-    if isinstance(context, dict):
-        return {"user_input": context.get("user_input", ""), "extra": context.get("extra", "")}
-    return {"user_input": "", "extra": str(context)}
-
-
-# 从 LLM 返回文本中解析事件 ID 列表（容错处理各种格式）
-def _parse_episode_ids(text: str) -> list[int]:
-    payload = _extract_json_payload(text, expected="array")
-    if payload is None:
-        return []
-
-    try:
-        data = json.loads(payload)
-    except json.JSONDecodeError:
-        return []
-
-    if not isinstance(data, list):
-        return []
-
-    episode_ids: list[int] = []
-    for item in data:
-        if isinstance(item, bool):
-            continue
-        if isinstance(item, int):
-            episode_ids.append(item)
-        elif isinstance(item, str) and item.strip().isdigit():
-            episode_ids.append(int(item.strip()))
-
-    return list(dict.fromkeys(episode_ids))
-
-
-# 从 LLM 返回文本中提取 JSON 片段（支持 markdown 代码块包裹）
-def _extract_json_payload(text: str, *, expected: str) -> str | None:
-    fenced_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
-    if fenced_match:
-        text = fenced_match.group(1).strip()
-
-    if expected == "array":
-        match = re.search(r"\[[\s\S]*\]", text)
-    else:
-        match = re.search(r"\{[\s\S]*\}", text)
-    if match:
-        return match.group(0)
-
-    stripped = text.strip()
-    if expected == "array" and stripped.startswith("[") and stripped.endswith("]"):
-        return stripped
-    if expected == "object" and stripped.startswith("{") and stripped.endswith("}"):
-        return stripped
-    return None

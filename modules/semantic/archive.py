@@ -22,10 +22,15 @@ from shared.llm_client import LLMClient
 from shared.prompt_utils import render_prompt
 
 
-ARCHIVE_SYSTEM_PROMPT = "你是一个记忆管理助手。"
+ARCHIVE_SYSTEM_PROMPT = """
+你是一个专业的角色扮演游戏变量分析助手。你的任务是根据参考信息和旧有剧情，为最新剧情更新游戏变量。
+`过去状态`是发生在最新剧情之前的旧变量，它需要根据`本回合对话`的内容被更新到`本回合对话`**发生之后**的最新时间点。
+请注意，你必须详细检查每一个变量，并体现在<Analysis>中。
+"""
 logger = logging.getLogger(__name__)
 
 
+# 语义记忆归档：更新语义记忆快照
 async def archive(
     chat_id: str,
     round_id: int,
@@ -46,7 +51,10 @@ async def archive(
     next_snapshot = copy.deepcopy(previous_snapshot)
 
     try:
+        # 将语义记忆快照转换为 YAML 格式，用于 LLM 阅读
         current_memory_yaml = dump_snapshot_yaml(chat_id, previous_snapshot)
+
+        # 渲染语义记忆更新提示词
         prompt_text = render_prompt(
             SEMANTIC_UPDATE_PROMPT,
             context=_normalize_context(context),
@@ -56,10 +64,14 @@ async def archive(
             reference_info=load_reference_info(chat_id),
             variable_update_rules=load_variable_update_rules(chat_id),
         )
+
+        # 调用 LLM 生成语义记忆更新指令
         response_text = await llm_client.generate_text(
             system_prompt=ARCHIVE_SYSTEM_PROMPT,
             user_prompt=prompt_text,
         )
+
+        # 解析语义记忆更新指令
         patch_operations = _parse_patch_operations(response_text)
         patched_snapshot = _apply_patch_operations(previous_snapshot, patch_operations)
         next_snapshot = validate_snapshot(chat_id, patched_snapshot)
@@ -76,6 +88,7 @@ async def archive(
             "archive_succeeded": False,
             "semantic_updated": False,
             "semantic_memory": None,
+            "previous_semantic_memory": None,
         }
 
     await upsert_semantic_memory(
@@ -88,9 +101,11 @@ async def archive(
         "archive_succeeded": True,
         "semantic_updated": semantic_updated,
         "semantic_memory": next_snapshot,
+        "previous_semantic_memory": previous_snapshot,
     }
 
 
+# 规范化上下文：将上下文转换为字典格式
 def _normalize_context(context: Any) -> dict[str, Any]:
     if context is None:
         return {"extra": ""}
@@ -104,6 +119,7 @@ def _normalize_context(context: Any) -> dict[str, Any]:
     return data
 
 
+# 解析语义记忆更新指令：将 LLM 返回的文本解析为 JSON 数组
 def _parse_patch_operations(text: str) -> list[dict[str, Any]]:
     payload = _extract_json_payload(text)
     if payload is None:
@@ -132,6 +148,7 @@ def _parse_patch_operations(text: str) -> list[dict[str, Any]]:
     return operations
 
 
+# 提取 JSON 数组：从 LLM 返回的文本中提取 JSON 数组
 def _extract_json_payload(text: str) -> str | None:
     fenced_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
     if fenced_match:
@@ -147,6 +164,7 @@ def _extract_json_payload(text: str) -> str | None:
     return None
 
 
+# 应用 JSON Patch 操作：将 JSON Patch 操作应用到语义记忆快照上
 def _apply_patch_operations(snapshot: dict[str, Any], operations: list[dict[str, Any]]) -> dict[str, Any]:
     result = copy.deepcopy(snapshot)
     for operation in operations:
@@ -157,6 +175,7 @@ def _apply_patch_operations(snapshot: dict[str, Any], operations: list[dict[str,
     return result
 
 
+# 应用单个 JSON Patch 操作：将单个 JSON Patch 操作应用到语义记忆快照上
 def _apply_single_operation(target: Any, operation: dict[str, Any]) -> None:
     tokens = [_unescape_json_pointer(token) for token in operation["path"].split("/")[1:]]
     if not tokens:
@@ -188,6 +207,7 @@ def _apply_single_operation(target: Any, operation: dict[str, Any]) -> None:
     parent[key] = copy.deepcopy(operation["value"])
 
 
+# 解析父级：解析 JSON Patch 操作的父级
 def _resolve_parent(target: Any, tokens: list[str]) -> tuple[Any, str]:
     current = target
     for token in tokens[:-1]:
@@ -203,6 +223,7 @@ def _resolve_parent(target: Any, tokens: list[str]) -> tuple[Any, str]:
     return current, tokens[-1]
 
 
+# 解析列表索引：解析 JSON Patch 操作的列表索引
 def _parse_list_index(items: list[Any], token: str, *, allow_append: bool = False) -> int:
     if token == "-" and allow_append:
         return len(items)
@@ -214,5 +235,6 @@ def _parse_list_index(items: list[Any], token: str, *, allow_append: bool = Fals
     return index
 
 
+# 反转义 JSON Pointer：将 JSON Pointer 中的转义字符转换为原始字符
 def _unescape_json_pointer(token: str) -> str:
     return token.replace("~1", "/").replace("~0", "~")

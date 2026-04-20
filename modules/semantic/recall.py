@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from repository.crud.semantic import get_latest_semantic_memory
 
 
+# 语义记忆召回：返回最新语义记忆快照
 async def recall(
     chat_id: str,
     db_session: AsyncSession,
