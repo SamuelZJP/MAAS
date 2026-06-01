@@ -28,6 +28,7 @@ async def run_archive(
     config: Settings,
 ) -> ArchiveResponse:
     normalized_round_data = _normalize_round_data(round_data)
+    resolved_user = _resolve_user(round_data, config)
 
     # 重复对话回合检查，遇到重复id直接跳过
     existing_round = await db_session.get(Round, (chat_id, normalized_round_data["round_id"]))
@@ -64,6 +65,7 @@ async def run_archive(
             user_input=normalized_round_data["user_input"],
             ai_response=normalized_round_data["ai_response"],
             context=context,
+            user=resolved_user,
             db_session=db_session,
             llm_client=llm_client,
         )
@@ -84,6 +86,7 @@ async def run_archive(
         ai_response=normalized_round_data["ai_response"],
         context=context,
         semantic_memory=semantic_memory,
+        user=resolved_user,
         llm_client=llm_client,
     )
     normalized_round_data["summary"] = generated_summary.strip()
@@ -97,16 +100,13 @@ async def run_archive(
         episodic_result = await episodic_archive(
             chat_id=chat_id,
             context=context,
+            user=resolved_user,
             db_session=db_session,
             llm_client=llm_client,
         )
         episode_created = bool(episodic_result.get("episode_created"))
         if episode_created and episodic_result.get("new_episode") is not None:
             new_episode = EpisodeDetail(**episodic_result["new_episode"])
-
-    # config变量的临时占用
-    # TODO: 在未来考虑移除
-    _ = config
 
     return ArchiveResponse(
         round_stored=stored_round,
@@ -139,6 +139,21 @@ async def _store_round(chat_id: str, round_data: dict[str, Any], db_session: Asy
     existing_round.episode_id = None
     await db_session.flush()
     return True
+
+
+# 解析本轮的用户角色名：前端提供则使用，否则回退到配置中的默认值
+def _resolve_user(round_data: Any, config: Settings) -> str:
+    if hasattr(round_data, "model_dump"):
+        data = round_data.model_dump()
+    elif isinstance(round_data, dict):
+        data = round_data
+    else:
+        data = {}
+
+    user = data.get("user")
+    if isinstance(user, str) and user.strip():
+        return user.strip()
+    return config.default_user
 
 
 # 将 Pydantic 模型或字典统一转为标准字典格式

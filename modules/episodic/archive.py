@@ -32,6 +32,7 @@ MIN_ROUNDS_PER_EPISODE = 5
 async def archive(
     chat_id: str,
     context: Any,
+    user: str,
     db_session: AsyncSession,
     llm_client: LLMClient,
 ) -> dict[str, Any]:
@@ -74,6 +75,7 @@ async def archive(
         first_message_summary=chat.first_message,
         archived_last_round=archived_last_round,
         rounds_in_range=rounds_to_archive,
+        user=user,
     )
     summary_response = await llm_client.generate_text(
         system_prompt=ARCHIVE_SYSTEM_PROMPT,

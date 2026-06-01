@@ -15,7 +15,7 @@ SUMMARY_SYSTEM_PROMPT = (
 SUMMARY_USER_TEMPLATE = """
 ## 上下文
 {{ context }}
-男主角、"我"的名称为周嘉鹏。
+主角、"我"、用户角色的名称为{{user}}。
 
 ## 当前状态
 {% if semantic_memory %}
@@ -46,6 +46,7 @@ async def generate_summary(
     ai_response: str,
     context: Any,
     semantic_memory: dict[str, Any] | None,
+    user: str,
     llm_client: LLMClient,
 ) -> str:
     user_prompt = render_prompt(
@@ -54,6 +55,7 @@ async def generate_summary(
         semantic_memory=semantic_memory,
         user_input=user_input,
         ai_response=ai_response,
+        user=user,
     )
     summary = await llm_client.generate_text(
         system_prompt=SUMMARY_SYSTEM_PROMPT,

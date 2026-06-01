@@ -37,6 +37,7 @@ async def archive(
     user_input: str,
     ai_response: str,
     context: Any,
+    user: str,
     db_session: AsyncSession,
     llm_client: LLMClient,
 ) -> dict[str, Any]:
@@ -61,6 +62,7 @@ async def archive(
             current_memory_yaml=current_memory_yaml,
             user_input=user_input,
             ai_response=ai_response,
+            user=user,
             reference_info=load_reference_info(chat_id),
             variable_update_rules=load_variable_update_rules(chat_id),
         )

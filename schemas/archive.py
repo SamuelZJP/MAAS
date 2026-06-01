@@ -26,6 +26,8 @@ class ArchiveRequest(BaseModel):
     # 兼容保留字段：后端已忽略前端传入的 summary，统一自行生成
     summary: str
     context: ArchiveContext
+    # SillyTavern 用户角色名，注入到提示词的 {{user}}；前端未提供时由后端回退到 config.default_user
+    user: str | None = None
 
 
 # 归档响应体：回合是否存储成功、是否产生了新事件

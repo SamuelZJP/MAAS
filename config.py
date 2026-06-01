@@ -41,6 +41,10 @@ class Settings(BaseSettings):
         default=False,
         description="Use built-in mock LLM responses for local smoke testing.",
     )
+    default_user: str = Field(
+        default="周嘉鹏",
+        description="Fallback persona name injected as {{user}} when the request omits it.",
+    )
 
 
 # 获取全局配置单例（缓存，仅首次调用时实例化）

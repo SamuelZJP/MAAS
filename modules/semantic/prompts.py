@@ -1,6 +1,6 @@
 SEMANTIC_UPDATE_PROMPT = """
 ## 特别强调
-<user>、男主角、"我"的名称为周嘉鹏。请把所有的<user>替换为周嘉鹏。
+<user>、主角、"我"的名称为{{user}}。请把所有的<user>替换为{{user}}。
 ## 上下文
 <Reference_Info>
 {{reference_info}}
