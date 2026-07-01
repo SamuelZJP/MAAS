@@ -68,6 +68,7 @@ async def run_archive(
             user=resolved_user,
             db_session=db_session,
             llm_client=llm_client,
+            config=config,
         )
         if not semantic_result.get("archive_succeeded", False):
             return ArchiveResponse(

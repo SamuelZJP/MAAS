@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import Settings
 from modules.semantic.prompts import SEMANTIC_UPDATE_PROMPT
 from modules.semantic.schema_loader import (
     SemanticSchemaError,
@@ -17,6 +18,7 @@ from modules.semantic.schema_loader import (
     load_variable_update_rules,
     validate_snapshot,
 )
+from repository.crud.rounds import get_rounds_in_range
 from repository.crud.semantic import get_latest_semantic_memory, upsert_semantic_memory
 from shared.llm_client import LLMClient
 from shared.prompt_utils import render_prompt
@@ -40,6 +42,7 @@ async def archive(
     user: str,
     db_session: AsyncSession,
     llm_client: LLMClient,
+    config: Settings,
 ) -> dict[str, Any]:
     latest_snapshot_record = await get_latest_semantic_memory(db_session, chat_id)
     previous_snapshot = (
@@ -55,11 +58,20 @@ async def archive(
         # 将语义记忆快照转换为 YAML 格式，用于 LLM 阅读
         current_memory_yaml = dump_snapshot_yaml(chat_id, previous_snapshot)
 
+        # 加载最近几轮的剧情摘要，作为本回合更新的上下文参考
+        recent_summaries = await _load_recent_summaries(
+            db_session,
+            chat_id=chat_id,
+            round_id=round_id,
+            window=config.semantic_recent_summary_rounds,
+        )
+
         # 渲染语义记忆更新提示词
         prompt_text = render_prompt(
             SEMANTIC_UPDATE_PROMPT,
             context=_normalize_context(context),
             current_memory_yaml=current_memory_yaml,
+            recent_summaries=recent_summaries,
             user_input=user_input,
             ai_response=ai_response,
             user=user,
@@ -105,6 +117,42 @@ async def archive(
         "semantic_memory": next_snapshot,
         "previous_semantic_memory": previous_snapshot,
     }
+
+
+# 加载最近几轮的剧情摘要：取 [round_id - window, round_id - 1] 范围内回合的 summary
+async def _load_recent_summaries(
+    db_session: AsyncSession,
+    *,
+    chat_id: str,
+    round_id: int,
+    window: int,
+) -> str:
+    placeholder = "（无最近剧情记录）"
+    if window <= 0:
+        return placeholder
+
+    start_round_id = round_id - window
+    end_round_id = round_id - 1
+    if end_round_id < start_round_id:
+        return placeholder
+
+    rounds = await get_rounds_in_range(
+        db_session,
+        chat_id=chat_id,
+        start_round_id=start_round_id,
+        end_round_id=end_round_id,
+    )
+
+    lines: list[str] = []
+    for round_record in rounds:
+        summary = (round_record.summary or "").strip()
+        if not summary:
+            continue
+        lines.append(f"第{round_record.round_id}回合：{summary}")
+
+    if not lines:
+        return placeholder
+    return "\n".join(lines)
 
 
 # 规范化上下文：将上下文转换为字典格式

@@ -45,6 +45,14 @@ class Settings(BaseSettings):
         default="周嘉鹏",
         description="Fallback persona name injected as {{user}} when the request omits it.",
     )
+    semantic_recent_summary_rounds: int = Field(
+        default=5,
+        ge=0,
+        description=(
+            "Number of preceding rounds whose summaries are fed to the semantic "
+            "archive LLM as recent-plot context. 0 disables the feature (legacy behavior)."
+        ),
+    )
 
 
 # 获取全局配置单例（缓存，仅首次调用时实例化）
