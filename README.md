@@ -1,127 +1,98 @@
-# MAAS
+# MAAS — 角色对话的记忆后端（原型）
 
-MAAS 是一个面向角色对话场景的记忆后端原型，基于 FastAPI、SQLite 和异步 SQLAlchemy 实现，围绕“召回”和“归档”两条主流程编排情节记忆、语义记忆与词条记忆模块。
+> **状态：已归档。** MAAS 是 2026 年 4–7 月做的技术原型，用来验证「长对话的记忆该怎么拆、怎么流转」。验证过的设计后来并入了全栈应用 **LoreNook**（分层摘要、状态规则、多用户隔离、Vue 3 前端、公网部署），本仓库不再更新。
 
-当前接口基础路径为 `/api/v1`，项目首期定位为单用户原型，默认使用本地 SQLite 数据库。
+长对话里，模型记不住几十轮之前发生的事，上下文又不能无限变长。MAAS 是一个独立的 HTTP 服务，夹在聊天前端和大模型之间：**生成前**告诉前端该把哪些记忆放进提示词，**回复后**把这一轮对话整理进记忆。
 
-## 项目简介
+技术栈：Python 3.11+ · FastAPI · 异步 SQLAlchemy（aiosqlite）· Pydantic · Jinja2 · 任意 OpenAI 兼容的 LLM 接口
 
-- 对话以 `Chat` 为单位管理，`chat_id` 当前约定为角色名。
-- 系统以 `Round` 作为最小记录单位，每轮包含用户输入、AI 回复和后端生成的摘要。
-- 记忆模块当前支持 `episodic`、`semantic`、`lorebook`，并通过 `enabled_modules` 控制启用状态。
-- `POST /recall` 用于 AI 生成前的记忆召回，`POST /archive` 用于 AI 回复后的记忆归档。
+## 两条流水线
 
-## 环境要求与安装
+```mermaid
+flowchart LR
+    subgraph 生成前
+        A[POST /recall] --> S[回滚检查<br/>前端删了楼层就同步回退]
+        S --> R1[语义记忆<br/>当前状态快照]
+        R1 --> R2[词条记忆<br/>按状态渲染模板]
+        R2 --> R3[情节记忆<br/>旧事件 + 近期回合摘要]
+        R3 --> P[拼进提示词]
+    end
+    subgraph 回复后
+        B[POST /archive] --> D[幂等检查<br/>同一回合只归档一次]
+        D --> W1[语义归档<br/>LLM 更新结构化状态]
+        W1 --> W2[生成本回合摘要]
+        W2 --> W3[情节归档<br/>跨日时打包为一个事件]
+    end
+```
 
-- Python `3.11+`
-- SQLite（默认通过 `aiosqlite` 使用本地文件数据库）
+## 三种记忆
 
-安装步骤：
+| 模块 | 存什么 | 怎么用 |
+| --- | --- | --- |
+| 情节记忆 `episodic` | 每回合一句摘要；剧情跨日时，把之前的回合打包成一个「事件」并生成事件摘要 | 召回时最近若干回合给摘要、更早的只给事件摘要，上下文不会随对话线性膨胀 |
+| 语义记忆 `semantic` | 按角色 Schema 定义的结构化状态（如日期、地点、关系数值），每回合由 LLM 增量更新并校验 | 作为状态快照注入；它的「日期」字段也是情节记忆判断跨日的依据 |
+| 词条记忆 `lorebook` | YAML 定义的设定词条，可含 Jinja2 模板 | 用当前语义状态渲染后按位置和深度注入 |
+
+三个模块通过 `enabled_modules` 独立开关（情节记忆在未启用语义记忆时，每回合都视为跨日）。
+
+## 值得一提的设计
+
+- **前端删楼层时自动回滚。** 召回时比对前端最新回合号与库内最大回合号，若前端删过消息，就把受影响的回合、事件和语义快照一并回退，保证记忆里没有「已被删除的剧情」。
+- **归档幂等。** 同一回合号重复提交直接跳过，前端重试不会写出重复记忆。
+- **一天之内的事不拆开。** 事件边界以剧情内日期切换为准，并始终留一个最新回合到下次，避免把正在进行的场景切成两半。
+- **语义更新失败则整轮不落库。** 状态和摘要要么一起写入，要么都不写。
+- **Mock 模式。** `MAAS_LLM_MOCK_MODE=true` 时不调用外部模型，便于本地联调。
+- 设计取舍记录在 [`docs/ADR/`](docs/ADR/)：总述、情节、语义、词条各一份（早期版本，部分细节以代码为准）。
+
+## 目录
+
+```
+api/          HTTP 接口层（参数校验、路由）
+schemas/      请求/响应模型（Pydantic）
+core/         召回、归档、回滚三条主流程的编排
+modules/      episodic / semantic / lorebook 三个记忆模块（各自含 recall / archive / prompts）
+repository/   数据库引擎、ORM 模型、CRUD
+shared/       LLM 客户端（超时与重试）、摘要生成、提示词渲染
+docs/         ADR 设计文档、前端对接说明
+```
+
+## 本地运行
 
 ```bash
 python -m venv .venv
-```
-
-```bash
-.venv\Scripts\activate
-```
-
-```bash
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-## 配置说明
-
-项目通过环境变量或 `.env` 文件加载配置，统一使用 `MAAS_` 前缀。
-
-常用配置项：
-
-- `MAAS_DATABASE_URL`：数据库连接串，默认值为 `sqlite+aiosqlite:///./maas.db`
-- `MAAS_LLM_ENDPOINT`：外部 LLM API 地址
-- `MAAS_LLM_MODEL`：外部 LLM 模型标识
-- `MAAS_LLM_API_KEY`：外部 LLM API Key
-- `MAAS_LLM_TIMEOUT_SECONDS`：LLM 请求超时时间，默认 `30.0`
-- `MAAS_LLM_MAX_RETRIES`：LLM 请求最大重试次数，默认 `2`
-- `MAAS_LLM_MOCK_MODE`：是否启用内置 mock 响应，默认 `false`
-
-示例 `.env`：
-
-```env
-MAAS_DATABASE_URL=sqlite+aiosqlite:///./maas.db
-MAAS_LLM_ENDPOINT=https://api.deepseek.com/chat/completions
-MAAS_LLM_MODEL=deepseek-chat
-MAAS_LLM_API_KEY=[TODO]
-MAAS_LLM_TIMEOUT_SECONDS=30
-MAAS_LLM_MAX_RETRIES=2
-MAAS_LLM_MOCK_MODE=false
-```
-
-补充说明：
-
-- 启用 `semantic` 时，需要存在 `data/{chat_id}.py`
-- 启用 `lorebook` 时，需要存在 `lorebook/{chat_id}/` 下的合法 YAML 词条文件
-
-## 启动方式
-
-开发环境可直接使用 Uvicorn 启动：
-
-```bash
+cp .env.example .env               # 填写 MAAS_LLM_*，或设 MAAS_LLM_MOCK_MODE=true
 uvicorn main:app --reload
 ```
 
-服务启动后会自动按 ORM 定义创建数据库表，并默认提供健康检查接口：
+启动后自动建表；Swagger 在 `/docs`，ReDoc 在 `/redoc`，健康检查 `GET /health`。
 
-- `GET /health`
+常用配置（环境变量或 `.env`，统一 `MAAS_` 前缀）：
 
-## 快速上手
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `MAAS_DATABASE_URL` | `sqlite+aiosqlite:///./maas.db` | 数据库 |
+| `MAAS_LLM_ENDPOINT` / `MAAS_LLM_MODEL` / `MAAS_LLM_API_KEY` | — | OpenAI 兼容接口 |
+| `MAAS_LLM_TIMEOUT_SECONDS` | `30.0` | 单次请求超时 |
+| `MAAS_LLM_MAX_RETRIES` | `2` | 失败重试次数 |
+| `MAAS_LLM_MOCK_MODE` | `false` | 不调用外部模型 |
 
-1. 安装依赖并准备 `.env`
-2. 按需准备角色语义 Schema：`data/{chat_id}.py`
-3. 按需准备角色词条目录：`lorebook/{chat_id}/`
-4. 启动服务：`uvicorn main:app --reload`
-5. 调用 `POST /api/v1/chats` 初始化角色对话
-6. 在对话流程中调用 `POST /api/v1/recall` 和 `POST /api/v1/archive`
+启用 `semantic` 需要角色 Schema `data/{chat_id}.py`；启用 `lorebook` 需要词条目录 `lorebook/{chat_id}/`。
 
-初始化角色对话示例：
+## 对接流程
+
+1. `POST /api/v1/chats` 初始化对话，指定 `enabled_modules`
+2. 用户发言后 `POST /api/v1/recall`，把返回的记忆拼进提示词
+3. 模型回复后 `POST /api/v1/archive`
+4. 排查用：`/api/v1/chats/{chat_id}/rounds`、`/episodes`、`/semantic`
 
 ```json
 {
-  "chat_id": "苏菲",
-  "first_message": "你好，我是苏菲。",
-  "enabled_modules": ["episodic", "semantic", "lorebook"]
+  "chat_id": "demo",
+  "first_message": "你好，今天想聊点什么？",
+  "enabled_modules": ["episodic"]
 }
 ```
 
-最小对接流程：
-
-- 先调用 `POST /api/v1/chats` 创建 chat
-- 用户输入后调用 `POST /api/v1/recall`
-- AI 回复后调用 `POST /api/v1/archive`
-- 调试或排查时，可使用 `/api/v1/chats/{chat_id}/rounds`、`/episodes`、`/semantic` 相关管理接口
-
-## 模块说明
-
-- `api`：HTTP 接口层，负责参数校验、路由组织和请求转发。
-- `schemas`：定义请求体、响应体与接口使用的 Pydantic 模型。
-- `core`：编排召回、归档和回滚同步等主流程。
-- `modules/episodic`：处理情节记忆的召回、边界检测与事件归档。
-- `modules/semantic`：处理语义记忆快照的读取、更新、校验与加载。
-- `modules/lorebook`：负责词条加载、模板渲染和词条召回。
-- `modules/working`：为未来工作记忆模块预留的目录。
-- `repository`：封装数据库引擎、ORM 模型和 CRUD 访问逻辑。
-- `shared`：提供 LLM 调用、摘要生成和提示词渲染等通用能力。
-- `data`：存放角色级语义记忆 Schema。
-- `lorebook`：存放角色级词条 YAML，作为词条内容来源。
-- `docs`：项目文档。
-
-## API 文档入口
-
-- Swagger UI：`/docs`
-- ReDoc：`/redoc`
-- 路由前缀：`/api/v1`
-
-## 说明
-
-- 生产部署方式：[TODO]
-- 测试方式：[TODO]
-- 示例角色资源规范补充：[TODO]
+前端字段与时序的完整说明见 [`docs/api_frontend.md`](docs/api_frontend.md)。
