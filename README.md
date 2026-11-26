@@ -96,3 +96,7 @@ uvicorn main:app --reload
 ```
 
 前端字段与时序的完整说明见 [`docs/api_frontend.md`](docs/api_frontend.md)。
+
+## 协议
+
+[MIT](LICENSE)。
